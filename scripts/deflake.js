@@ -5,6 +5,8 @@
  */
 
 import { spawn } from 'node:child_process';
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
@@ -58,23 +60,46 @@ async function main() {
   const ARGS = argv._;
   let failures = 0;
 
+  const dockerIgnorePath = join(process.cwd(), '.dockerignore');
+  let createdDockerIgnore = false;
+
   console.log(`--- Starting Deflake Run (${NUM_RUNS} iterations) ---`);
-  for (let i = 1; i <= NUM_RUNS; i++) {
-    console.log(`\n[RUN ${i}/${NUM_RUNS}]`);
 
-    try {
-      // 3. Await the asynchronous command run
-      const exitCode = await runCommand(COMMAND, ARGS);
+  try {
+    if (!existsSync(dockerIgnorePath)) {
+      console.log(
+        'Creating temporary .dockerignore to exclude .integration-tests',
+      );
+      writeFileSync(dockerIgnorePath, '.integration-tests\n');
+      createdDockerIgnore = true;
+    }
 
-      if (exitCode === 0) {
-        console.log('✅ Run PASS');
-      } else {
-        console.log(`❌ Run FAIL (Exit Code: ${exitCode})`);
+    for (let i = 1; i <= NUM_RUNS; i++) {
+      console.log(`\n[RUN ${i}/${NUM_RUNS}]`);
+
+      try {
+        // 3. Await the asynchronous command run
+        const exitCode = await runCommand(COMMAND, ARGS);
+
+        if (exitCode === 0) {
+          console.log('✅ Run PASS');
+        } else {
+          console.log(`❌ Run FAIL (Exit Code: ${exitCode})`);
+          failures++;
+        }
+      } catch (error) {
+        console.error('❌ Run FAIL (Execution Error)', error);
         failures++;
       }
-    } catch (error) {
-      console.error('❌ Run FAIL (Execution Error)', error);
-      failures++;
+    }
+  } finally {
+    if (createdDockerIgnore) {
+      console.log('Removing temporary .dockerignore');
+      try {
+        unlinkSync(dockerIgnorePath);
+      } catch (e) {
+        console.error('Failed to remove temporary .dockerignore', e);
+      }
     }
   }
 
